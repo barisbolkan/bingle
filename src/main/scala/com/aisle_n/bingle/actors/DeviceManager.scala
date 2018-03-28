@@ -47,15 +47,12 @@ object DeviceManager {
     def apply() : DeviceState = DeviceState(Map.empty)
   }
 
-  val extractEntityId: ShardRegion.ExtractEntityId = {
+  def extractEntityId: ShardRegion.ExtractEntityId = {
     case m: AddDevice => (m.device.appName + "_" + m.device.userNo, m)
-    case m: GetDevice => {
-      println(m.appName)
-      (m.appName + "_" + m.id, m)
-    }
+    case m: GetDevice => (m.appName + "_" + m.id, m)
   }
 
-  val extractShardId: ShardRegion.ExtractShardId = {
+  def extractShardId: ShardRegion.ExtractShardId = {
     case m: AddDevice => ((m.device.appName + "_" + m.device.userNo).hashCode % 10).toString
     case m: GetDevice => ((m.appName + "_" + m.id).hashCode % 10).toString
   }
@@ -76,52 +73,37 @@ class DeviceManager(settings: Settings) extends PersistentActor {
   override def persistenceId: String = self.path.name
 
   override def receiveRecover : Receive = {
-
     //Sadece deviceAdded persist edildigi icin sorun yok
     case event: Event =>
       state += event
-
     case SnapshotOffer(_, snapshot: DeviceState) =>
       state = snapshot
-
     case RecoveryCompleted =>
       println(RecoveryCompleted)
     //TODO: DO STH
-
   }
 
   override def receiveCommand : Receive = {
-
     //todo: appName implementation
     case GetDevice(appName,id) =>
-      println("GET DEVICE GELDI")
-      state(appName,id) match{
-
+      state(appName, id) match {
         case Left(deviceNotFound) =>
           sender() ! deviceNotFound
-          println("DEVICE NOT FOUND DONDU")
-
         case Right(deviceInfo) =>
           sender() ! DeviceResolved(deviceInfo)
-          println("DEVICE RESOLVED DONDU")
-
       }
-
     case AddDevice(deviceInfo) =>
-      println("DEVICE_ADDED :" + deviceInfo.toString)
       handleEvent(DeviceAdded(deviceInfo))
   }
 
   private def handleEvent[E <: Event](e: => E) : Unit = {
-
     persistAsync(e) {
       event =>
         state += event
         context.system.eventStream.publish(event)
-        //todo: 100000 i configden al
-        if(lastSequenceNr != 0 && lastSequenceNr % 100 == 0)
+
+        if(lastSequenceNr != 0 && lastSequenceNr % settings.snapshotCount == 0)
           saveSnapshot(state)
-        println("PERSIST DE ETTIM REYIZ")
     }
   }
 }
