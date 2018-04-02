@@ -40,7 +40,14 @@ object DeviceManager {
     def apply(appName: String, userNo: String): MaybeDevice[DeviceInfo] =
       devices.get(appName + "_" + userNo).toRight(DeviceNotFound(appName, userNo))
 
-    def +(event: Event) : DeviceState = DeviceState(devices.updated(generateRecordId(event), event.device))
+    def +(event: Event) : DeviceState = DeviceState(devices.updated(event.device.appName+"_"+event.device.userNo, event.device))
+
+    def deviceTokenUpdated (appName: String, userNo: String, deviceToken: String) : Boolean = {
+      devices.get(appName + "_" + userNo) match {
+        case Some(deviceInfo) => if(deviceInfo.deviceToken == deviceToken) false else true
+        case None => true
+      }
+    }
   }
 
   object DeviceState {
@@ -59,9 +66,6 @@ object DeviceManager {
 
   def props(settings: Settings): Props = Props(new DeviceManager(settings))
 
-  private def generateRecordId(event: Event) : String = {
-    event.device.userNo + "_" + event.device.appName
-  }
 }
 
 class DeviceManager(settings: Settings) extends PersistentActor {
@@ -97,13 +101,15 @@ class DeviceManager(settings: Settings) extends PersistentActor {
   }
 
   private def handleEvent[E <: Event](e: => E) : Unit = {
-    persistAsync(e) {
-      event =>
-        state += event
-        context.system.eventStream.publish(event)
 
-        if(lastSequenceNr != 0 && lastSequenceNr % settings.snapshotCount == 0)
-          saveSnapshot(state)
+    if(state.deviceTokenUpdated(e.device.appName, e.device.userNo, e.device.deviceToken)){
+      persistAsync(e) {
+        event =>
+          state += event
+          context.system.eventStream.publish(event)
+          if(lastSequenceNr != 0 && lastSequenceNr % settings.snapshotCount == 0)
+            saveSnapshot(state)
+      }
     }
   }
 }
